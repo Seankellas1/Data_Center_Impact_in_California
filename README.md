@@ -1,2 +1,7 @@
 # Data_Center_Impacts_in_California
 This project will look at the impact Data Centers,larger than 100,000 sq f,  have in California, specifically their impacts on housing costs from the years 2015-2023. The focus on larger data centers is because with the new AI rush to build more large data centers, I wanted to examine how current large scale ones have effected local housing costs. This research will look at California counties with at least one data center over 100,000 square feet, and analyse the impacts on local housing markets. The counties will include Sacramento County, Los Angeles County, Alameda County, Napa County, and San Francisco County. I am not including silicon valley/santa clara county because it is much more dense with large scale data centers than the rest, and the rise of big tech in that area is a variable that cannot be compared to the other locations. 
+
+
+The Data center CV discusses sq footage in whitespace available, not actual size of the building. 
+
+Script 1 is "opening_year_lookup.py"
