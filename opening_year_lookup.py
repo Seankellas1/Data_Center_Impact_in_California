@@ -21,22 +21,17 @@ EPSG_PROJ   = 3310     # CA Albers — used for accurate distance calculations
 STUDY_START = 2000     # NHGIS Census 2000 SF3a — pre-DC baseline
 STUDY_MID   = 2015     # ACS 5-year — during DC buildout
 STUDY_END   = 2023     # ACS 5-year — post-buildout
-BUFFER_M    = 8000     # 8km default proximity threshold
-# No county-specific overrides needed — Napa excluded from regression
 MIN_SQFT    = 100_000  # only facilities this size or larger are included
+# Buffer sizes are managed in Script 3 — assign_treatment_groups.py
 
-# Five study counties — Sacramento kept as anchor, others added for
-# generalizability. Napa included as a contrast case (non-tech context).
-# Santa Clara excluded — DC concentration too dominant, tech industry
-# confounding too severe to isolate DC effect cleanly.
+# Four study counties — Napa excluded from regression (no viable control
+# tracts at any buffer size). Santa Clara excluded — DC concentration too
+# dominant, tech industry confounding too severe to isolate DC effect.
 STUDY_COUNTIES = [
     "Sacramento County",
     "Los Angeles County",
     "Alameda County",
     "San Francisco County",
-    # Napa County excluded from regression — Kaiser Data Center (1990)
-    # sits centrally within the county leaving no viable control tracts
-    # at any buffer size. Discussed descriptively as a contrast case.
 ]
 
 # Napa kept separately for descriptive analysis only
@@ -85,7 +80,7 @@ MANUAL_ADDITIONS = [
 
 
 # ── LOAD & FILTER TO STUDY COUNTIES ───────────────────────────────────────────
-# Reads the IM3 CSV, filters to the five study counties, and applies
+# Reads the IM3 CSV, filters to the four study counties, and applies
 # the 100k sqft minimum so only large facilities are included.
 
 def load_study_counties(csv_path: str) -> pd.DataFrame:
@@ -140,11 +135,9 @@ def print_facilities(study: pd.DataFrame):
 # ── BUILD DATED DATASET ───────────────────────────────────────────────────────
 # Applies researched opening years and assigns operational flags
 # across all three study periods (2000, 2015, 2023).
-# Four groups emerge:
-#   pre2000    — DC present before 2000 (very long exposed)
-#   buildout   — DC arrived 2000–2015 (main buildout wave)
-#   hyperscale — DC arrived 2015–2023 (recent era)
-#   control    — assigned at tract level in Script 3
+# Two groups:
+#   buildout — DC arrived anywhere in the study window 2000–2023
+#   control  — assigned at tract level in Script 3
 
 def build_dated_gdf(study: pd.DataFrame) -> gpd.GeoDataFrame:
     study = study.copy()
@@ -171,10 +164,9 @@ def build_dated_gdf(study: pd.DataFrame) -> gpd.GeoDataFrame:
     study["operational_2015"] = study["opening_year"] <= STUDY_MID
     study["operational_2023"] = study["opening_year"] <= STUDY_END
 
-    # Buildout covers the full 2000–2023 window
+    # Buildout covers the full study window
     study["opened_in_buildout"] = (
-        (study["opening_year"] > STUDY_START) &
-        (study["opening_year"] <= STUDY_END)
+        study["opening_year"] <= STUDY_END
     )
     study["est_power_kw"] = study["sqft"].fillna(0) * 0.5
 
@@ -193,82 +185,16 @@ def build_dated_gdf(study: pd.DataFrame) -> gpd.GeoDataFrame:
         if len(sub) == 0:
             continue
         print(f"\n{county}")
-        print(f"  Pre-2000 (baseline):    {sub['operational_2000'].sum()}")
-        print(f"  Buildout 2000–2023:     {sub['opened_in_buildout'].sum()}")
+        print(f"  Buildout (any year in study window): {sub['opened_in_buildout'].sum()}")
         for _, r in sub.sort_values("opening_year").iterrows():
-            group = "pre-2000" if r["operational_2000"] else "buildout 2000–2023"
-            print(f"    {r['opening_year']}  {str(r.get('name',''))[:37]:<38} [{group}]")
+            print(f"    {r['opening_year']}  {str(r.get('name',''))[:37]:<38}")
 
     return gdf
 
 
-# ── ASSIGN TRACT TREATMENT GROUPS ─────────────────────────────────────────────
-# Called by Script 3 after Script 2 has built the tract GeoDataFrame.
-# Processes each county independently so buffers never cross county lines.
-# Adds proximity flags and group labels used by Scripts 4 and 5.
-
-def assign_tract_treatment(tract_gdf: gpd.GeoDataFrame,
-                            dated_dcs: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
-    tract_gdf = tract_gdf.copy()
-
-    # Initialize proximity and distance columns for all three periods
-    for year in [2000, 2015, 2023]:
-        tract_gdf[f"near_dc_{year}"]            = False
-        tract_gdf[f"dist_nearest_dc_{year}_km"] = np.nan
-
-    for county in STUDY_COUNTIES:
-        county_tracts = tract_gdf["county_name"].str.contains(
-            county.replace(" County", ""), na=False
-        )
-        county_dcs = dated_dcs[dated_dcs["county"] == county]
-
-        for year, col in [(2000, "near_dc_2000"),
-                          (2015, "near_dc_2015"),
-                          (2023, "near_dc_2023")]:
-            year_dcs = county_dcs[county_dcs[f"operational_{year}"]].copy()
-            if len(year_dcs) == 0:
-                continue
-
-            union = year_dcs.geometry.buffer(BUFFER_M).union_all()
-            tract_gdf.loc[county_tracts, col] = (
-                tract_gdf[county_tracts].geometry.intersects(union)
-            )
-
-            centroids = tract_gdf[county_tracts].geometry.centroid
-            tract_gdf.loc[county_tracts, f"dist_nearest_dc_{year}_km"] = (
-                centroids.apply(
-                    lambda pt: round(
-                        year_dcs.geometry.distance(pt).min() / 1000, 2
-                    )
-                ).values
-            )
-
-    # Three treatment groups — no hyperscale category
-    # control:  no DC nearby in any period
-    # pre2000:  DC present before 2000 (Napa Kaiser)
-    # buildout: DC arrived 2000–2023 (all other study facilities)
-    tract_gdf["group"] = "control"
-    tract_gdf.loc[
-        tract_gdf["near_dc_2000"], "group"
-    ] = "pre2000"
-    tract_gdf.loc[
-        (~tract_gdf["near_dc_2000"]) & tract_gdf["near_dc_2023"],
-        "group"
-    ] = "buildout"
-
-    # Binary dummies for regression
-    tract_gdf["is_pre2000"]  = (tract_gdf["group"] == "pre2000").astype(int)
-    tract_gdf["is_buildout"] = (tract_gdf["group"] == "buildout").astype(int)
-
-    print(f"\nTreatment group summary (all counties):")
-    print(f"  Control:  {(tract_gdf['group']=='control').sum()} tracts")
-    print(f"  Pre-2000: {(tract_gdf['group']=='pre2000').sum()} tracts")
-    print(f"  Buildout: {(tract_gdf['group']=='buildout').sum()} tracts")
-
-    return tract_gdf
-
-
 # ── MAIN ──────────────────────────────────────────────────────────────────────
+# Treatment group assignment has moved to Script 3 — assign_treatment_groups.py
+# which handles all buffer sizes in a single pass.
 # First run: prints facility table so you know what to research.
 # Second run: builds and displays the cleaned dated dataset.
 

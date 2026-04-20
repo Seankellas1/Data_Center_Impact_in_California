@@ -9,6 +9,15 @@ Matching on 2000 covariates means we are comparing tracts that
 looked similar BEFORE any study DC existed — the strongest
 possible baseline for a difference-in-differences design.
 
+Two treatment groups:
+  control:  no DC nearby in any period (reference group)
+  buildout: DC arrived anywhere in the study window 2000–2023
+
+Group assignment uses dist_nearest_dc_2023_km written by Script 3.
+The default matching uses 8km (primary specification). Script 5
+reassigns groups at other buffer sizes for sensitivity analysis
+using the same distance column — no reprocessing needed.
+
 Outputs:
   - Balance table printed to console (Table 1 in paper)
   - data/matched_panel.csv (input for Script 5)
@@ -18,6 +27,7 @@ Run after Scripts 2 and 3 are complete.
 Install: pip install pandas geopandas scikit-learn scipy
 """
 
+import os
 import numpy as np
 import pandas as pd
 import geopandas as gpd
@@ -28,8 +38,9 @@ from sklearn.neighbors import NearestNeighbors
 import warnings
 warnings.filterwarnings("ignore")
 
-GPKG_PATH = "geopackages/housing_data.gpkg"
-YEARS     = [2000, 2015, 2023]
+GPKG_PATH      = "geopackages/housing_data.gpkg"
+YEARS          = [2000, 2015, 2023]
+DEFAULT_BUFFER = 8   # km — primary specification
 
 STUDY_COUNTIES = [
     "Sacramento County",
@@ -39,9 +50,7 @@ STUDY_COUNTIES = [
     # Napa excluded — no viable control tracts at any buffer size
 ]
 
-# PSM covariates — generic names used after panel reshape
-# (the panel has year=2000 rows with columns named med_home_value,
-# med_rent, med_hh_income — not med_home_value_2000 etc.)
+# PSM covariates — matched on 2000 baseline values
 PSM_COVARIATES = [
     "med_hh_income",
     "med_home_value",
@@ -53,12 +62,13 @@ CALIPER = 0.10   # max propensity score difference for a valid match
 
 # ── LOAD AND RESHAPE TO PANEL ─────────────────────────────────────────────────
 # Reads the tract layer and reshapes from wide to long panel format.
-# Creates all DiD interaction terms needed by Script 5.
+# Pulls all multi-buffer proximity columns written by Script 3 so that
+# Script 5 can reassign groups at any buffer without reprocessing geometry.
 
 def load_panel() -> pd.DataFrame:
     gdf = gpd.read_file(GPKG_PATH, layer="study_tracts")
 
-    # Diagnostic — print all columns so we can see what actually came through
+    # Diagnostic — print all columns so we can verify Script 3 output
     print("\nColumns in study_tracts layer:")
     for col in sorted(gdf.columns):
         print(f"  {col}")
@@ -75,14 +85,13 @@ def load_panel() -> pd.DataFrame:
         }
         available = {k: v for k, v in cols.items() if k in gdf.columns}
 
-        # Grab treatment columns — handle case where they may not exist yet
-        treatment_cols = [c for c in ["group", "is_pre2000", "is_buildout",
-                                       "is_hyperscale", "near_dc_2000",
-                                       "near_dc_2015", "near_dc_2023",
-                                       "dist_nearest_dc_2000_km",
-                                       "dist_nearest_dc_2015_km",
-                                       "dist_nearest_dc_2023_km"]
-                          if c in gdf.columns]
+        # Pull all treatment and distance columns written by Script 3
+        # Includes multi-buffer proximity flags and raw distance columns
+        treatment_cols = [c for c in gdf.columns if (
+            c.startswith("near_dc_")          or   # near_dc_2km_2023 etc
+            c.startswith("dist_nearest_dc_")  or   # dist_nearest_dc_2023_km
+            c in ["group_8km", "is_buildout_8km"]   # default group columns
+        )]
 
         yr_df = gdf[["geoid", "county_name"] +
                     treatment_cols +
@@ -95,22 +104,28 @@ def load_panel() -> pd.DataFrame:
     if "geometry" in panel.columns:
         panel = panel.drop(columns=["geometry"])
 
+    # Rename default group columns to standard names used throughout
+    if "group_8km" in panel.columns:
+        panel = panel.rename(columns={
+            "group_8km":       "group",
+            "is_buildout_8km": "is_buildout",
+        })
+
     # Period indicators — 2000 is the reference period
     panel["post_2015"] = (panel["year"] == 2015).astype(int)
     panel["post_2023"] = (panel["year"] == 2023).astype(int)
 
-    # DiD interactions: each group × each post-period
-    for group in ["pre2000", "buildout"]:
-        if f"is_{group}" in panel.columns:
-            for post in ["post_2015", "post_2023"]:
-                panel[f"{group}_x_{post}"] = panel[f"is_{group}"] * panel[post]
+    # DiD interactions at default 8km buffer
+    if "is_buildout" in panel.columns:
+        panel["buildout_x_post_2015"] = panel["is_buildout"] * panel["post_2015"]
+        panel["buildout_x_post_2023"] = panel["is_buildout"] * panel["post_2023"]
 
     # Log transforms for regression
     for col in ["med_home_value", "med_rent", "med_hh_income"]:
         if col in panel.columns:
             panel[f"log_{col}"] = np.log(panel[col].clip(lower=1))
 
-    # Continuous treatment: inverse distance to nearest DC in 2023
+    # Inverse distance — used by distance gradient model in Script 5
     if "dist_nearest_dc_2023_km" in panel.columns:
         panel["inv_dist_2023"] = np.where(
             panel["dist_nearest_dc_2023_km"] > 0,
@@ -120,7 +135,7 @@ def load_panel() -> pd.DataFrame:
     print(f"Panel: {len(panel)} rows | "
           f"{panel['geoid'].nunique()} tracts | 3 periods")
 
-    # Diagnostic — show which 2000 columns have actual data
+    # Diagnostic — covariate availability at 2000 baseline
     print("\n2000 covariate availability:")
     yr2000 = panel[panel["year"] == 2000]
     for col in PSM_COVARIATES:
@@ -131,21 +146,42 @@ def load_panel() -> pd.DataFrame:
             print(f"  {col}: column not found")
 
     if "group" in panel.columns:
+        print(f"\nTract counts by county and group at {DEFAULT_BUFFER}km "
+              f"(2000 baseline):")
         print(panel[panel["year"] == 2000].groupby(
             ["county_name", "group"])["geoid"].nunique().to_string())
+
     return panel
 
 
 # ── PROPENSITY SCORE MATCHING ─────────────────────────────────────────────────
 # Matches treated tracts to control tracts within each county separately.
 # Uses 2000 covariates so matching reflects pre-treatment similarity.
+# buffer_km parameter allows Script 5 to call this at any buffer size
+# without reloading the panel — groups are reassigned from distance column.
 
-def match_within_county(panel: pd.DataFrame) -> pd.DataFrame:
-    print("\nRunning propensity score matching within each county...")
+def match_within_county(panel: pd.DataFrame,
+                        buffer_km: int = DEFAULT_BUFFER) -> pd.DataFrame:
+    print(f"\nRunning PSM within each county (buffer = {buffer_km}km)...")
     matched_frames = []
 
+    # Reassign groups based on requested buffer size using the distance
+    # column written by Script 3 — no geometry reprocessing needed
+    panel = panel.copy()
+    if "dist_nearest_dc_2023_km" in panel.columns:
+        panel["group"]       = np.where(
+            panel["dist_nearest_dc_2023_km"] <= buffer_km,
+            "buildout", "control"
+        )
+        panel["is_buildout"] = (panel["group"] == "buildout").astype(int)
+        panel["buildout_x_post_2015"] = (
+            panel["is_buildout"] * panel["post_2015"]
+        )
+        panel["buildout_x_post_2023"] = (
+            panel["is_buildout"] * panel["post_2023"]
+        )
+
     for county in STUDY_COUNTIES:
-        # Use only 2000 observations for matching
         sub = panel[
             (panel["county_name"] == county) &
             (panel["year"] == 2000)
@@ -166,16 +202,6 @@ def match_within_county(panel: pd.DataFrame) -> pd.DataFrame:
 
         if len(treated) == 0 or len(control) == 0:
             print(f"  {county}: no treated or control tracts — skipping")
-            # Still include pre2000 tracts if they exist
-            pre2000_geoids = set(
-                sub[sub["group"] == "pre2000"]["geoid"].values
-            )
-            if pre2000_geoids:
-                matched_frames.append(
-                    panel[(panel["county_name"] == county) &
-                          (panel["geoid"].isin(pre2000_geoids))]
-                )
-                print(f"    Added {len(pre2000_geoids)} pre2000 tracts from {county}")
             continue
 
         # Fit logistic regression to estimate propensity to receive a DC
@@ -200,16 +226,9 @@ def match_within_county(panel: pd.DataFrame) -> pd.DataFrame:
         matched_ctrl   = control_ps["geoid"].values[indices.flatten()[valid]]
         matched_geoids = set(matched_treat) | set(matched_ctrl)
 
-        # Also include all pre2000 tracts in this county
-        pre2000_geoids = set(
-            sub[sub["group"] == "pre2000"]["geoid"].values
-        )
-        all_geoids = matched_geoids | pre2000_geoids
-
         n_dropped = (~valid).sum()
-        print(f"  {county}: {len(matched_treat)} matched buildout/control pairs "
-              f"({n_dropped} outside caliper) + "
-              f"{len(pre2000_geoids)} pre2000 tracts")
+        print(f"  {county}: {len(matched_treat)} matched pairs "
+              f"({n_dropped} outside caliper)")
 
         # Store propensity scores back in full panel
         ps_map     = clean.set_index("geoid")["ps"].to_dict()
@@ -218,12 +237,12 @@ def match_within_county(panel: pd.DataFrame) -> pd.DataFrame:
             panel.loc[county_idx, "geoid"].map(ps_map)
         )
         panel.loc[county_idx, "in_matched_sample"] = (
-            panel.loc[county_idx, "geoid"].isin(all_geoids)
+            panel.loc[county_idx, "geoid"].isin(matched_geoids)
         )
 
         matched_frames.append(
             panel[(panel["county_name"] == county) &
-                  (panel["geoid"].isin(all_geoids))]
+                  (panel["geoid"].isin(matched_geoids))]
         )
 
     if not matched_frames:
@@ -233,7 +252,9 @@ def match_within_county(panel: pd.DataFrame) -> pd.DataFrame:
     matched = pd.concat(matched_frames, ignore_index=True)
     print(f"\nMatched panel: {matched['geoid'].nunique()} tracts "
           f"across {matched['county_name'].nunique()} counties")
-    print(matched[matched["year"]==2000].groupby(
+    print(f"\nMatched tract counts by county and group "
+          f"({buffer_km}km, 2000 baseline):")
+    print(matched[matched["year"] == 2000].groupby(
         ["county_name", "group"])["geoid"].nunique().to_string())
     return matched
 
@@ -276,8 +297,6 @@ def balance_table(full_panel: pd.DataFrame, matched_panel: pd.DataFrame):
 
     print("─" * 75)
     print("SMD = standardized mean difference  ✓ < 0.1  ! >= 0.1")
-    print("Note: pre2000 tracts included but not PSM-matched —")
-    print("      they enter the regression with tract fixed effects only.")
     print("\nBy county (matched sample, 2000):")
     if "group" in pre_matched.columns:
         print(pre_matched.groupby(["county_name", "group"])["geoid"]
@@ -290,8 +309,8 @@ def _smd(treated: pd.Series, control: pd.Series) -> float:
 
 
 # ── PARALLEL TRENDS CHECK ─────────────────────────────────────────────────────
-# With 2000 as a clean pre-treatment baseline, we can test whether
-# treated and control groups had similar housing values before any DC arrived.
+# Tests whether treated and control groups had similar housing values
+# before any DC arrived. p >= 0.05 supports the parallel trends assumption.
 
 def parallel_trends_check(panel: pd.DataFrame):
     if "group" not in panel.columns:
@@ -308,7 +327,7 @@ def parallel_trends_check(panel: pd.DataFrame):
         print(f"\n  {outcome}:")
         for year in YEARS:
             yr = panel[panel["year"] == year]
-            for group in ["control", "pre2000", "buildout", "hyperscale"]:
+            for group in ["control", "buildout"]:
                 vals = yr[yr["group"] == group][outcome].dropna()
                 if len(vals) > 0:
                     print(f"    {year} {group:<12}: "
@@ -329,7 +348,7 @@ def parallel_trends_check(panel: pd.DataFrame):
 def main():
     full_panel    = load_panel()
     parallel_trends_check(full_panel)
-    matched_panel = match_within_county(full_panel)
+    matched_panel = match_within_county(full_panel, buffer_km=DEFAULT_BUFFER)
     balance_table(full_panel, matched_panel)
 
     os.makedirs("data", exist_ok=True)
@@ -339,5 +358,4 @@ def main():
 
 
 if __name__ == "__main__":
-    import os
     main()
