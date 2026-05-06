@@ -1,8 +1,8 @@
 """
 Script 2b — FHFA HPI Data Pipeline (Robustness Check)
 =======================================================
-Downloads the FHFA House Price Index at the census tract level and
-builds a GeoPackage in the same format as Script 2's output so that
+
+Builds a GeoPackage in the same format as Script 2's output so that
 Scripts 3, 4, 5, 6, and 7 can run unchanged as a robustness check.
 
 The FHFA HPI is based on actual mortgage transaction data (repeat-sales
@@ -39,7 +39,7 @@ OUTPUT_DIR      = "geopackages"
 GPKG_PATH       = os.path.join(OUTPUT_DIR, "housing_data_fhfa.gpkg")
 CENSUS_GPKG     = os.path.join(OUTPUT_DIR, "housing_data.gpkg")  # Script 2 output
 FHFA_CACHE      = "data/fhfa/HPI_AT_BDL_tract.csv"
-CENSUS_API_KEY  = os.environ.get("CENSUS_API_KEY", "314253ac718eac9ce5891234409bba3d70aa48d6")
+CENSUS_API_KEY = os.environ.get("CENSUS_API_KEY", "Actual Key")
 EPSG_GEO        = 4326
 EPSG_PROJ       = 3310
 STATE_FIPS      = "06"
