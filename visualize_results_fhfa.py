@@ -57,8 +57,8 @@ YEAR_LABELS = ["2000\n(Baseline)", "2015\n(Mid-period)", "2023\n(End-period)"]
 
 TWFE_RESULTS = {
     "med_home_value": {
-        "buildout_x_post_2015": {"coef": 23498.01,  "se": 40611.44, "p": 0.563},
-        "buildout_x_post_2023": {"coef": 13584.51,  "se": 51701.24, "p": 0.793},
+        "buildout_x_post_2015": {"coef": 23498.17,  "se": 40611.98, "p": 0.563},
+        "buildout_x_post_2023": {"coef": 13580.57,  "se": 51701.15, "p": 0.793},
     },
     "med_rent": {
         "buildout_x_post_2015": {"coef": 48.19,  "se": 43.44, "p": 0.268},
@@ -68,8 +68,8 @@ TWFE_RESULTS = {
 
 DID_RESULTS = {
     "med_home_value": {
-        "buildout_x_post_2015": {"coef": 402.45,    "se": 33951.26, "p": 0.991},
-        "buildout_x_post_2023": {"coef": -14475.42, "se": 40143.91, "p": 0.718},
+        "buildout_x_post_2015": {"coef": 402.67,    "se": 33951.70, "p": 0.991},
+        "buildout_x_post_2023": {"coef": -14479.63, "se": 40143.88, "p": 0.718},
     },
     "med_rent": {
         "buildout_x_post_2015": {"coef": 47.82,  "se": 35.71, "p": 0.181},
@@ -78,7 +78,7 @@ DID_RESULTS = {
 }
 
 FHFA_TWFE_GAP_2023 = {
-    "med_home_value": 1.4,   # $13,585 / control mean hv 2023
+    "med_home_value": 1.4,   # $13,581 / ~$992k control mean 2023 × 100
     "med_rent":       5.7,   # same as Census — ACS rent
 }
 

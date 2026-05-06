@@ -32,7 +32,7 @@ import requests
 import numpy as np
 import pandas as pd
 import geopandas as gpd
-from shapely.geometry import Point
+
 
 # ── SETTINGS ──────────────────────────────────────────────────────────────────
 OUTPUT_DIR      = "geopackages"
@@ -139,9 +139,11 @@ def parse_fhfa_ca(df: pd.DataFrame) -> pd.DataFrame:
             year_col = candidate
             break
 
-    # Identify the HPI index column
+    # Identify the HPI index column — prioritize hpi2000 which is
+    # already indexed to 100 in 2000, matching our Census baseline year
     hpi_col = None
-    for candidate in ["hpi", "index_nsa", "index", "hpi_nsa",
+    for candidate in ["hpi2000", "hpi2000q4", "hpi_2000",
+                       "hpi", "index_nsa", "index", "hpi_nsa",
                        "annual_change", "hpi_with_se"]:
         if candidate in df.columns:
             hpi_col = candidate
@@ -165,29 +167,25 @@ def parse_fhfa_ca(df: pd.DataFrame) -> pd.DataFrame:
     if year_col:
         ca[year_col] = pd.to_numeric(ca[year_col], errors="coerce")
     if hpi_col:
-        ca[hpi_col]  = pd.to_numeric(ca[hpi_col],  errors="coerce")
+        ca[hpi_col] = pd.to_numeric(ca[hpi_col], errors="coerce")
 
-    # Extract the three study years
+    # Extract the three study years and create wide format
+    # Output columns: hpi2000_2000, hpi2000_2015, hpi2000_2023
     study_frames = {}
     for year in YEARS:
         if year_col:
             yr_df = ca[ca[year_col] == year][[geoid_col, hpi_col]].copy()
         else:
-            # If no year column, try to find year-specific columns
-            col_name = f"hpi_{year}" if f"hpi_{year}" in ca.columns else None
-            if col_name:
-                yr_df = ca[[geoid_col, col_name]].copy()
-                yr_df = yr_df.rename(columns={col_name: hpi_col})
-            else:
-                print(f"  WARNING: Cannot find data for year {year}")
-                continue
+            print(f"  WARNING: Cannot find year column for {year}")
+            continue
 
         yr_df = yr_df.rename(columns={
             geoid_col: "geoid",
-            hpi_col:   f"hpi_{year}"
+            hpi_col:   f"hpi2000_{year}"    # hpi2000_2000, hpi2000_2015, hpi2000_2023
         })
-        study_frames[year] = yr_df.dropna(subset=[f"hpi_{year}"])
-        print(f"  {year}: {len(study_frames[year]):,} tracts with HPI data")
+        study_frames[year] = yr_df.dropna(subset=[f"hpi2000_{year}"])
+        print(f"  {year}: {len(study_frames[year]):,} tracts with HPI data "
+              f"(mean index: {study_frames[year][f'hpi2000_{year}'].mean():.1f})")
 
     # Merge all three years into wide format
     if not study_frames:
@@ -202,6 +200,7 @@ def parse_fhfa_ca(df: pd.DataFrame) -> pd.DataFrame:
             wide = wide.merge(frame, on="geoid", how="outer")
 
     print(f"\n  Wide FHFA table: {len(wide):,} tracts")
+    print(f"  Columns: {list(wide.columns)}")
     return wide
 
 
@@ -227,13 +226,13 @@ def load_census_baseline() -> pd.DataFrame:
 
 
 # ── CONVERT FHFA INDEX TO DOLLAR VALUES ──────────────────────────────────────
-# Anchors the FHFA index to Census 2000 dollar values at the tract level.
-# Formula: hv_year = census_2000 × (hpi_year / hpi_2000)
+# The hpi2000 column is already indexed to 100 in year 2000.
+# Formula: hv_year = census_2000 × (hpi2000_year / 100)
 #
 # This means:
-#   - 2000 values = Census 2000 exactly (anchor point)
-#   - 2015 values = Census 2000 × FHFA price growth 2000→2015
-#   - 2023 values = Census 2000 × FHFA price growth 2000→2023
+#   - 2000 values = Census 2000 exactly (hpi2000 = 100 in 2000)
+#   - 2015 values = Census 2000 × (hpi2000_2015 / 100)
+#   - 2023 values = Census 2000 × (hpi2000_2023 / 100)
 #
 # The 2015 and 2023 movements are entirely driven by FHFA transaction
 # data, making them independent of the Census ACS for those years.
@@ -245,32 +244,34 @@ def convert_to_dollars(fhfa_wide: pd.DataFrame,
     # Merge FHFA with Census baseline
     merged = census_base.merge(fhfa_wide, on="geoid", how="left")
 
-    n_matched = merged["hpi_2000"].notna().sum() if "hpi_2000" in merged.columns else 0
+    # Check match rate using hpi2000 columns
+    hpi2000_cols = [c for c in merged.columns if c.startswith("hpi2000_")]
+    n_matched = merged[hpi2000_cols[0]].notna().sum() if hpi2000_cols else 0
     n_total   = len(merged)
     print(f"  {n_matched:,} of {n_total:,} tracts matched to FHFA data")
 
     if n_matched == 0:
         print("  WARNING: No tracts matched. Check GEOID format.")
         print(f"  Census GEOIDs sample: {list(merged['geoid'].head(3))}")
-        print(f"  FHFA GEOIDs sample: {list(fhfa_wide['geoid'].head(3))}")
+        print(f"  FHFA GEOIDs sample:   {list(fhfa_wide['geoid'].head(3))}")
 
-    # Compute dollar values using index anchoring
-    # Where FHFA data is missing, fall back to Census values
+    # Compute dollar values using hpi2000 index (base = 100 in 2000)
     for year in [2015, 2023]:
-        hpi_col = f"hpi_{year}"
-        hpi_base = "hpi_2000"
+        hpi_col = f"hpi2000_{year}"
 
-        if hpi_col in merged.columns and hpi_base in merged.columns:
-            # FHFA-derived value: Census 2000 × (HPI_year / HPI_2000)
-            ratio = merged[hpi_col] / merged[hpi_base]
+        if hpi_col in merged.columns:
+            # hpi2000 = 100 in 2000, so ratio = hpi2000_year / 100
+            ratio = merged[hpi_col] / 100.0
             merged[f"med_home_value_{year}"] = (
                 merged["med_home_value_2000"] * ratio
             ).round(0)
 
             n_fhfa = merged[f"med_home_value_{year}"].notna().sum()
-            print(f"  {year}: {n_fhfa:,} tracts with FHFA-derived values")
+            print(f"  {year}: {n_fhfa:,} tracts with FHFA-derived values "
+                  f"(mean ratio: {ratio.mean():.2f})")
         else:
-            print(f"  WARNING: Missing HPI columns for {year}")
+            print(f"  WARNING: Column {hpi_col} not found — "
+                  f"available: {[c for c in merged.columns if 'hpi' in c.lower()]}")
             merged[f"med_home_value_{year}"] = np.nan
 
     return merged

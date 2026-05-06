@@ -10,7 +10,6 @@ Run after Script 2b — housing_data_pipeline_fhfa.py
 
 import geopandas as gpd
 import numpy as np
-import pandas as pd
 from opening_year_lookup import (
     load_study_counties,
     build_dated_gdf,
