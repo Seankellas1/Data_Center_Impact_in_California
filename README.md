@@ -3,7 +3,7 @@
 ## Abstract
 This project will look at the impact Data Centers (DCs), larger than 100,000 sq ft, have in California, specifically their impacts on housing costs from the years 2000-2023. The focus on larger DCs is because with the new AI rush to build more large data centers, I wanted to examine how current large scale ones have effected local housing costs. This research will look at California counties with at least one DC over 100,000 square feet, and analyse the impacts on local housing markets. The counties will include Sacramento County, Los Angeles County, Alameda County, and San Francisco County. I am not including silicon valley/santa clara county due to the density of DCs larger than 100,000 sqft as its inclusion would dilute the results. 
 
-![alt text](image-4.png)
+![alt text](outputs/figures/map_01_statewide_locator.png)
 
 ## Inputs 
 
@@ -82,7 +82,7 @@ As shown in the figure above, according to census data, between 2000 - 2023, med
 
 ### San Francisco County
 
-![alt text](image-3.png)
+![alt text](outputs/figures/map_05_san_francisco.png)
 
 As shown in the figure above, according to census data, between 2000 - 2023, median home value decreased by 11.3% in census tracts between 0km - 2km from a 100,000 sqft DC compared to the control group. Median home value increased by 9.6% between 2km - 4km compared to the control tracts, but between 4km - 6km increased by 21% compared to the control tracts. Median home value then increased by just 2.4% between 6km - 8km. 
 
@@ -94,7 +94,7 @@ Los Angeles county is difficult because the two large DCs are close to each othe
 
 ### Sacramento County
 
-![alt text](image-2.png)
+![alt text](outputs/figures/map_2_sacramento.png)
 
 Sacramento county is difficult because the three large DCs are close to each other. Interpreting the results, between 0km - 4km median home value in treatment tracts decreased between -8.9% - -5.1% compared to control tracts. 4km - 6km median home value was between -8.9% - -9.4%, and between 6km - 8km median home value changed by -1.4% - 11% when compared to the control tracts between 2000 - 2023. 
 
@@ -103,7 +103,7 @@ Sacramento county is difficult because the three large DCs are close to each oth
 
 #### Census
 
-![alt text](image.png)
+![alt text](outputs/figures/08_gap_analysis.png)
 
 The above figure shows the % change in median home value and rent value for each year of study, as well as the TWFE adjusted value for 2023. As stated earlier, this figure shows the difference in differences assessment between the control and treatent group (buildout). For median home value, treatment tract's median home value increased by 1.5% more between 2000 - 2023 than they would if they were never within 8km of a DC over 100,000 sqft large. 
 
@@ -111,7 +111,7 @@ The figure also shows that median rent in tracts within 8km of a DC over 100,000
 
 #### FHFA
 
-![alt text](image-1.png)
+![alt text](outputs/figures_fhfa/08_gap_analysis.png)
 
 The FHFA data is used as a robustness check as it is actual home sale data compared to the census which marks what homeowners think their home is valued at. The difference in differences assement in the figure above shows treatment tracts median home value actually increased by 9.5% less than they would have if they were never within 8km of a DC over 100,000 sqft large between 2000 - 2023. 
 
