@@ -1,13 +1,29 @@
-# Data Center Impacts in California
+# Data Center Impacts on Home Values in California
 
 ## Abstract
+
 This project will look at the impact Data Centers (DCs), larger than 100,000 sq ft, have in California, specifically their impacts on housing costs from the years 2000-2023. The focus on larger DCs is because with the new AI rush to build more large data centers, I wanted to examine how current large scale ones have effected local housing costs. This research will look at California counties with at least one DC over 100,000 square feet, and analyse the impacts on local housing markets. The counties will include Sacramento County, Los Angeles County, Alameda County, and San Francisco County. I am not including silicon valley/santa clara county due to the density of DCs larger than 100,000 sqft as its inclusion would dilute the results. 
+
+This analysis will be done using both a Difference in Differences and Time/Tract fixed effects regression model (TWFE). The TWFE regression model will be used to control for all the time-invariant variables that effect home value and rent in all the tracts within a county, and then all the time-invarient variables effecting all the counties equally. THe equation being used is below:
+
+Model: Y_it = α_i + λ_t + β1(buildout × post2015) + β2(buildout × post2023) + ε_it
+
+Y = Either median home value median rent, dependent on what's being analysed. 
+
+- Buildout = treatment tract (Tracts within 8km of a DC 100,000 sqft or larger) Binary variable(0 if control, 1 if treatment).
+
+- post2015 and post2023 = time variables. Binary variable(0 if not the year, 1 if its 2015 for post2015, and 1 if its 2023 for post2023).
+
+- α_i  = tract fixed effect (stable neighborhood characteristics).
+- λ_t  = year fixed effect (statewide macro trends).
+
+Below is a map of California with the counties being studied highlighted. You'll notice Napa County is highlighted along with the others already mentioned. That is because Napa also has a DC larger than 100,000 sqft, however, the 8km radious covered almost the entire portion of housed tracts within the county, so it was ommitted from the final study. 
 
 ![alt text](outputs/figures/map_01_statewide_locator.png)
 
 ## Inputs 
 
-There were muliple datasets used in this project. 2015 and 2023 ACS 5-year data via census API, and 2000 NHGIS Census SF3a tract level CSV was used for the analysis of median home value and rent. ACS Census data is pulled in script 2, housing_data_pipeline.py, however 2000 NHGIS Census SF3a tract level data must be requested from NHGIS archived census data and saved in the documented file listed in NHGIS within script 2 for Census data. Script 2 also pulls in and automatically downloads Census TIGER files for the California tract boundaries. 
+There were muliple datasets used in this project. 2015 and 2023 ACS 5-year data via census API, and 2000 NHGIS Census SF3a tract level CSV was used for the analysis of median home value and rent. A Census API Key must be requested and obtained in order to pull this data. ACS Census data is pulled in script 2, housing_data_pipeline.py, however 2000 NHGIS Census SF3a tract level data must be requested from NHGIS archived census data and saved in the documented file listed in NHGIS within script 2 for Census data, though I have the specific needed info in this repository. Script 2 also pulls in and automatically downloads Census TIGER files for the California tract boundaries. 
 
 For actual sale data I used Federal Housing Finance Agency (FHFA) data. Specifically HPI_at_BDL_tract.csv downloaded from their website. It must be downloaded and placed in the correct folder reflected in the FHFA cache line in script 2 (FHFA version) 
 
@@ -17,8 +33,16 @@ For the data center informaiton, im3 open source data center atlas version 2026 
 
 There are twelve python scripts used in this research. Seven of them are used to analyze Census data, and five of them are used to to analyze FHFA data. The opening_year_lookup.py only needs to be ran once. Once done, the outputs will be used by both the Census and FHFA scripts. The FHFA scripts do the same thing as the Census scripts, but process the FHFA data instead. 
 
+Run these scripts in the order listed below. When running FHFA scripts, you do not need to rerun opening year lookup script. 
 
-### Cenus Scripts
+### Dependencies Used
+
+- Core Data Packages: pandas, numpy, geopandas, and shapely
+- Statistics & Regression: linearmodels, statsmodels, scikit-learn, and scipy
+- Visualation: matplotlib
+- Data Access: requests
+
+### Census Scripts
 
 1. opening_year_lookup.py 
 
@@ -27,7 +51,7 @@ There are twelve python scripts used in this research. Seven of them are used to
 
 2. housing_data_pipeline.py
 
-    Fetches and reads housing data from 2015 and 2023 ACS 5-year data via Census API, and also reads 2000 NHGIS Census SF3a tract-level CSV (must be downloaded prior to running). You must have your own API key to fetch Census data. Once done, this script will build the primary geopackage for the remainder of the analysis 
+    Fetches and reads housing data from 2015 and 2023 ACS 5-year data via Census API, and also reads 2000 NHGIS Census SF3a tract-level CSV (must be downloaded prior to running). You must have your own API key to fetch Census data and have the Api Key text file in the main project folder, and also input the key within the code where it asks for it. Once done, this script will build the primary geopackage for the remainder of the analysis 
 
 3. assign_treatment_groups.py
 
@@ -129,9 +153,8 @@ NHGIS Data Citation:
 
 Jonathan Schroeder, David Van Riper, Steven Manson, Katherine Knowles, Tracy Kugler, Finn Roberts, and Steven Ruggles. IPUMS National Historical Geographic Information System: Version 20.0 [dataset]. Minneapolis, MN: IPUMS. 2025. http://doi.org/10.18128/D050.V20.0
 
-The Data center CV discusses sq footage in whitespace available, not actual size of the building  
+The DC CSV discusses sq footage in whitespace available, not actual size of the building  
 
-In this project I use both Census 2015 and 2023 ACS-5 year estimate data, as well as the 2000 decennial census data, which uses different variable codes than the ACS, which is addressed in script 2. 
 
 ## AI Acknowledgement 
 
