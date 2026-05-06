@@ -6,9 +6,9 @@ This project will look at the impact Data Centers (DCs), larger than 100,000 sq 
 
 This analysis will be done using both a Difference in Differences and Time/Tract fixed effects regression model (TWFE). The TWFE regression model will be used to control for all the time-invariant variables that effect home value and rent in all the tracts within a county, and then all the time-invarient variables effecting all the counties equally. THe equation being used is below:
 
-Model: Y_it = α_i + λ_t + β1(buildout × post2015) + β2(buildout × post2023) + ε_it
+    Model: Y_it = α_i + λ_t + β1(buildout × post2015) + β2(buildout × post2023) + ε_it
 
-Y = Either median home value median rent, dependent on what's being analysed. 
+- Y = Either median home value median rent, dependent on what's being analysed. 
 
 - Buildout = treatment tract (Tracts within 8km of a DC 100,000 sqft or larger) Binary variable(0 if control, 1 if treatment).
 
