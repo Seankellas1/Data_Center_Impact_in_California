@@ -558,29 +558,57 @@ def chart_gap_analysis(panel: pd.DataFrame):
               f"({gaps_pct[2]-baseline_pct:+.1f}pp net of baseline).")
 
         # ── Bar chart of gap % by period ──
-        x      = np.arange(len(YEARS))
+        # Four bars: 2000 baseline, 2015 mid, 2023 raw, 2023 TWFE-adjusted
+        # The fourth bar adds the regression-adjusted estimate for comparison
+
+        # TWFE-adjusted 2023 gap values hardcoded from Script 5 results
+        # home value: $123,307 / $992,000 control mean 2023 = 12.4%
+        # rent:       $133.90  / $2,365   control mean 2023 = 5.7%
+        twfe_gap_2023 = {
+            "med_home_value": 12.4,
+            "med_rent":        5.7,
+        }
+        twfe_net = {
+            "med_home_value": 12.4 - baseline_pct,
+            "med_rent":        5.7 - baseline_pct,
+        }
+
+        # Build x positions — four bars with a small gap before the fourth
+        x_raw  = np.array([0, 1, 2])      # baseline, 2015, 2023 raw
+        x_twfe = 3.3                       # slight gap to signal different type
+
         colors = []
         for i, pct in enumerate(gaps_pct):
             net = pct - baseline_pct
             if i == 0:
-                colors.append("#9CA3AF")   # baseline — neutral
+                colors.append("#9CA3AF")   # baseline — neutral grey
             elif net > 0:
                 colors.append(COLORS["buildout"])
             else:
                 colors.append(COLORS["negative"])
 
-        bars = ax.bar(x, gaps_pct, width=0.5,
+        # Raw bars
+        bars = ax.bar(x_raw, gaps_pct, width=0.5,
                       color=colors, alpha=0.88, zorder=3)
+
+        # TWFE-adjusted bar — hatched to signal it's regression-adjusted
+        twfe_val = twfe_gap_2023[outcome]
+        twfe_color = (COLORS["buildout"] if twfe_net[outcome] > 0
+                      else COLORS["negative"])
+        ax.bar(x_twfe, twfe_val, width=0.5,
+               color=twfe_color, alpha=0.88, zorder=3,
+               hatch="///", edgecolor="white", linewidth=0.5,
+               label="TWFE-adjusted (p=0.008 ***)")
 
         # Baseline reference line
         ax.axhline(baseline_pct, color="#374151", linewidth=1.5,
                    linestyle="--", alpha=0.7,
                    label=f"Baseline gap ({baseline_pct:.1f}%)")
 
-        # Value labels
+        # Value labels on raw bars
         for bar, pct, i in zip(bars, gaps_pct, range(len(YEARS))):
-            net    = pct - baseline_pct if i > 0 else None
-            label  = f"{pct:.1f}%"
+            net   = pct - baseline_pct if i > 0 else None
+            label = f"{pct:.1f}%"
             if net is not None:
                 label += f"\n({net:+.1f}pp)"
             ax.text(bar.get_x() + bar.get_width() / 2,
@@ -588,12 +616,25 @@ def chart_gap_analysis(panel: pd.DataFrame):
                     label, ha="center", va="bottom",
                     fontsize=9, fontweight="bold", color="#1F2937")
 
-        ax.set_xticks(x)
-        ax.set_xticklabels(YEAR_LABELS)
+        # Value label on TWFE bar
+        twfe_label = (f"{twfe_val:.1f}%\n"
+                      f"({twfe_net[outcome]:+.1f}pp)\n***")
+        ax.text(x_twfe, twfe_val + baseline_pct * 0.02,
+                twfe_label, ha="center", va="bottom",
+                fontsize=9, fontweight="bold",
+                color=COLORS["buildout"])
+
+        # X axis — four ticks
+        ax.set_xticks([0, 1, 2, 3.3])
+        ax.set_xticklabels([
+            "2000\n(Baseline)",
+            "2015\n(Mid-period)",
+            "2023\n(Raw)",
+            "2023\n(TWFE-adjusted)",
+        ])
         ax.yaxis.set_major_formatter(FuncFormatter(pct_fmt))
-        ax.legend(frameon=False, fontsize=9)
-        style_ax(ax, title,
-                 ylabel="Gap as % of control mean")
+        ax.legend(frameon=False, fontsize=8)
+        style_ax(ax, title, ylabel="Gap as % of control mean")
 
     fig.suptitle(
         "Buildout–Control Gap as % of Control Mean — Baseline-Controlled",
@@ -601,10 +642,9 @@ def chart_gap_analysis(panel: pd.DataFrame):
     )
     fig.text(
         0.5, -0.04,
-        "Dashed line = 2000 baseline gap. Bar labels show gap % and "
-        "change in percentage points (pp) relative to baseline.\n"
-        "Positive pp = gap widened beyond pre-existing difference. "
-        "Matched PSM sample (8km buffer).",
+        "Dashed line = 2000 baseline gap. Bar labels show gap % and pp change relative to baseline.\n"
+        "Hatched bar = TWFE regression-adjusted estimate (p=0.008 ***). "
+        "Solid bars = raw descriptive means. Matched PSM sample (8km buffer).",
         ha="center", fontsize=8, color="#6B7280", style="italic"
     )
     plt.tight_layout()
